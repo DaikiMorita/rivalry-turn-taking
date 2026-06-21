@@ -51,6 +51,7 @@
 |---|---|
 | `rivalry.py` | 中核ロジック（ライブラリ）。自律ノード `RivalryNode`／場の公開スカラー結合／`decide_winner`（公開イベントだけの固定ルール）。peer-mesh の不変条件はここ。**`experiments.py` から import されるだけで、単体では実行しない。** |
 | `experiments.py` | **実行する入口（これを動かす）。** レジーム（独占/沈黙/健全）／窓／baselines 比較／N=2・N=3 時系列を再生成。 |
+| `tests/` | 最小テスト（標準ライブラリ `unittest`）。peer-mesh の不変条件と first-passage の勝者ルール、独占/健全のレジームを固定する。 |
 
 ## 動かし方
 
@@ -61,6 +62,14 @@ python3 experiments.py
 動かすのは `experiments.py` だけです。`rivalry.py` は中核ロジックで、`experiments.py` から読み込まれます（`rivalry.py` を直接実行しても何も起きません）。
 
 依存パッケージなし（標準ライブラリ `math` / `random` のみ）。**動作確認: Python 3.12.8（macOS）**。3.10+ 専用の構文は使っていないので Python 3.8 以上で動く想定です。20 seed × 各 2000 ターンの平均を 10 秒ほどで出します。
+
+## テスト
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+これも標準ライブラリ（`unittest`）だけで動きます（追加インストール不要）。docstring や名前ではなく**実行できる検査**で、README が主張する2つのこと ──「中央の司会者がいない（peer-mesh）」と「first-passage の勝者ルール」、そして「同じ力学が独占にも健全な交代にもなる」── を最小限で固定しています。
 
 ## 出力例
 
