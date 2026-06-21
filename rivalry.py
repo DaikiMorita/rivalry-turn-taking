@@ -1,32 +1,39 @@
-"""両眼視野闘争（binocular rivalry）型の神経力学で、司会者なしに「発言の椅子」を回す最小モデル。
+"""分散ターンテイキング・エンジンの中核（教育用 mock）。
 
-記事「複数の AI を司会者なしで会話させる」で示した玩具シミュレータの本体。
-- 標準ライブラリ（math / random）だけで動く。特定のアプリ・フレームワークには一切依存しない。
-- 各エージェントの外部刺激 u_i がどこから来るか（言語モデル / ルール / 人間）は問わない。
-  この力学は「活性 x_i がしきい値を最初に越えたのは誰か」だけを見て発言者を決める。
+本番プロダクトの peer-mesh エンジンから「発言の椅子を司会者なしで回す」中核だけを
+取り出した mock です。本番の drive 計算（公開事実→刺激 u の生成）・空間(zone)配線・
+調整済みの本番パラメータ・各種ガードは含みません。目的は原理（分散ターンテイキング）
+を再現可能な最小形で示すことです。
 
-力学（各エージェント i）:
-    x_i : 活性（いまどれだけ発言に乗り出しているか）
-    a_i : 遅い疲労（長く立ち上がるほど溜まり、ゆっくり抜ける）
-    b_i : 速い不応（発話直後に跳ね、ターンの中で素早く抜ける = 神経の不応期）
+────────────────────────────────────────────────────────────
+これは「rivalry という名前のオーケストレーター（中央の司会者）」ではありません。
+peer-mesh（分散）であることを、コードの構造そのものが満たす2つの不変条件で示します:
 
-    dx_i = -alpha*x_i + w_s*phi(x_i)            # 減衰 + 自己興奮（双安定）
-           - w_I*(y - phi(x_i))                 # 相互抑制（自分以外の占有度の合計）
-           - beta*a_i - b_i                     # 遅い疲労 + 速い不応
-           + g_u*u_i + noise                    # 外部刺激 + 揺らぎ
-    da_i = -gamma*a_i + eta*x_i
-    db_i = -(1/tau_b)*b_i + kappa_b*phi(x_i)
-    phi  = sigmoid,  y = Σ_j phi(x_j)（場の占有度 = 共有スカラー）
+  (1) 共有バスに乗るのは公開情報だけ。
+      ・各ノードが場に出す「公開出力 psi（占有度への寄与）」の合計 = 場の占有度 y。
+      ・「誰がいつ閾値を越えたか」という公開イベント。
+      他ノードの私的状態(x,a,b)も発話内容も、誰も読みません。実際 RivalryNode.step() の
+      引数は「自分の状態 + 公開スカラー field_y + 自分の drive」だけで、他ノードの
+      オブジェクトを受け取らない = 構造的に他者の内部を読めません。
+      （場の占有度 y は「中央が私的状態を集めて回る」のではなく、各自が公開出力を場に
+        出し各自が合計を感じる平均場結合。蛍の同期・クオラムセンシングと同型の、
+        指揮者なしの集団力学です。）
 
-注: これは原理を見せるための簡約形。実プロダクトの本番エンジンは、相互抑制に
-「はっきり立ち上がった者だけを強く数える急峻な占有度関数」と「在席数によらない一定の
-基底抑制」を足しているが、ここではそれを省いて骨格だけを示す（ODE 定数は本番と同じ）。
+  (2) 勝者は「審議する権威」ではなく「全員共有の固定ルール」で決まる。
+      decide_winner() は公開イベント（誰がいつ越えたか）だけの純関数で、文脈も中身も
+      読みません。各ノードがこの関数をローカルに実行すれば同じ勝者を得ます = 中央の
+      権威は不要。1か所で min() を呼ぶのは分散合意ルールの中央「実装」にすぎず、原理上は
+      photo-finish のカメラのように「勝者を決める」のでなく「創発した結果を記録する」だけ。
+
+つまり who-talks は《決定》ではなく《創発（first-passage）》です。脳の両眼視野闘争に
+「どちらの像を見せるか決める小人」がいないのと同じ構図を、コードで保っています。
+────────────────────────────────────────────────────────────
 """
 
 import math
 
-# 本番エンジンと同じ ODE 定数（占有度整形などの作り込みは省いた簡約形）。
-PARAMS = dict(
+# 本番エンジンと同じ ODE 定数（占有度整形などの作り込みを省いた簡約形）。
+DEFAULTS = dict(
     alpha=0.5, w_s=1.0, w_I=0.7, beta=0.7, gamma=0.05, eta=0.2,
     tau_b=1.5, kappa_b=1.0, g_u=1.0, theta=0.45, sigma=0.1, substeps=10,
 )
@@ -37,40 +44,91 @@ def sigmoid(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-x)) if x >= 0 else math.exp(x) / (1.0 + math.exp(x))
 
 
-def euler_step(x, a, b, u, p, rng):
-    """ODE を 1 ステップ（前進オイラー、揺らぎ込み）進める。x/a/b は dict[id -> float]。"""
-    phi = {i: sigmoid(x[i]) for i in x}
-    y = sum(phi.values())  # 場の占有度（共有スカラー）
-    nx, na, nb = {}, {}, {}
-    for i in x:
-        dx = (
-            -p["alpha"] * x[i] + p["w_s"] * phi[i]   # 減衰 + 自己興奮
-            - p["w_I"] * (y - phi[i])                # 相互抑制（自分以外の占有度）
-            - p["beta"] * a[i] - b[i]                # 遅い疲労 + 速い不応
-            + p["g_u"] * u.get(i, 0.0)               # 外部刺激
-            + rng.gauss(0.0, p["sigma"])             # 揺らぎ
-        )
-        nx[i] = x[i] + dx
-        na[i] = a[i] + (-p["gamma"] * a[i] + p["eta"] * x[i])
-        nb[i] = b[i] + (-(1.0 / p["tau_b"]) * b[i] + p["kappa_b"] * phi[i])
-    return nx, na, nb
+class RivalryNode:
+    """1個の自律ノード。
 
+    更新に使えるのは「自分の私的状態 (x,a,b) + 場の公開スカラー field_y + 自分の drive」
+    だけ。他ノードのオブジェクトを受け取らない = 他者の内部を構造的に読めない。
 
-def turn(x, a, b, u, p, rng):
-    """ひと区切り（substeps ステップ）積分し、最初に theta を越えたエージェントを返す。
-
-    勝者は「振幅」ではなく「位相」で決める = first-passage（最初にしきい値を越えた者）。
-    同時に越えたら、そのあいだの活性の積み上がり（Σphi）が大きいほうを採る。
-    誰も越えなければ None（＝沈黙。今は誰も話さなくてよい、を表現できる）。
+    状態:
+        x : 活性（いまどれだけ発言に乗り出しているか）
+        a : 遅い疲労（長く立ち上がるほど溜まり、ゆっくり抜ける）
+        b : 速い不応（発話直後に跳ね、ターン内で素早く抜ける = 不応期）
     """
-    crossing, integ = {}, {i: 0.0 for i in x}
+
+    def __init__(self, node_id, params=DEFAULTS):
+        self.id = node_id
+        self.p = params
+        self.x = 0.0
+        self.a = 0.0
+        self.b = 0.0
+
+    def public_output(self) -> float:
+        """場に出す公開信号（占有度への寄与）。他者はこれを「合計の形でだけ」受け取る。"""
+        return sigmoid(self.x)
+
+    def step(self, field_y: float, drive_u: float, rng) -> None:
+        """自分の状態を 1 ステップ進める。引数は公開スカラーと自分の drive だけ。
+
+        相互抑制は「自分以外の占有 = 公開合計 field_y − 自分の公開出力」で計算する。
+        どちらも自分に見える量（公開スカラーと自分の出力）だけで、他者の私的状態は不要。
+        """
+        p = self.p
+        phi = sigmoid(self.x)
+        others_occupancy = field_y - phi  # 公開合計 − 自分の寄与 = 他者の占有度
+        dx = (
+            -p["alpha"] * self.x + p["w_s"] * phi   # 減衰 + 自己興奮
+            - p["w_I"] * others_occupancy           # 相互抑制（公開スカラー経由）
+            - p["beta"] * self.a - self.b           # 遅い疲労 + 速い不応
+            + p["g_u"] * drive_u                    # 自分への外部刺激
+            + rng.gauss(0.0, p["sigma"])            # 揺らぎ
+        )
+        da = -p["gamma"] * self.a + p["eta"] * self.x
+        db = -(1.0 / p["tau_b"]) * self.b + p["kappa_b"] * phi
+        self.x += dx
+        self.a += da
+        self.b += db
+
+
+def field_occupancy(nodes) -> float:
+    """場の公開スカラー = 各ノードの公開出力の合計（平均場 / 占有度）。
+
+    これだけが共有バスに乗る。中央が私的状態を集めて回るのではなく、各自が公開出力を
+    場に出し、各自がその合計を感じる（leaderless な集団力学の王道）。
+    """
+    return sum(node.public_output() for node in nodes)
+
+
+def run_turn(nodes, drive, rng):
+    """ひと区切り（substeps ステップ）積分し、first-passage で勝者を返す。
+
+    各 substep では、まず場の公開スカラー y を読み、各ノードが y と自分の drive だけで
+    独立に自分を更新する（固定順は乱数列の再現性のため。情報的には並列）。そのあと
+    各ノードが「自分の活性が閾値を越えたか」を自分で検知して公開イベントにする。
+
+    返り値: (winner_id or None, crossings: dict[id->step], integ: dict[id->Σpublic_output])
+    """
+    p = nodes[0].p
+    crossings = {}
+    integ = {node.id: 0.0 for node in nodes}
     for s in range(1, p["substeps"] + 1):
-        x, a, b = euler_step(x, a, b, u, p, rng)
-        for i in x:
-            integ[i] += sigmoid(x[i])
-            if i not in crossing and x[i] > p["theta"]:
-                crossing[i] = s
-    if not crossing:
-        return None, x, a, b
-    winner = min(crossing, key=lambda i: (crossing[i], -integ[i]))
-    return winner, x, a, b
+        y = field_occupancy(nodes)                 # 公開スカラーを場から読む
+        for node in nodes:                          # 各ノードが独立に自分を更新
+            node.step(y, drive[node.id], rng)
+        for node in nodes:                          # 各ノードが自分の閾値超えを自分で検知
+            integ[node.id] += sigmoid(node.x)
+            if node.id not in crossings and node.x > p["theta"]:
+                crossings[node.id] = s
+    return decide_winner(crossings, integ), crossings, integ
+
+
+def decide_winner(crossings, integ):
+    """全員共有の固定ルール: 最初に閾値を越えた者。同時なら公開出力の積み上がりが大きい方。
+
+    引数は公開イベント（誰がいつ越えたか / 公開出力の積分）だけ。各ノードがこの関数を
+    ローカルに実行しても同じ勝者を得る = 中央の権威は不要（分散合意ルールの中央実装に
+    すぎない）。誰も越えなければ None（＝沈黙。今は誰も話さなくてよい、を表現できる）。
+    """
+    if not crossings:
+        return None
+    return min(crossings, key=lambda i: (crossings[i], -integ[i]))
