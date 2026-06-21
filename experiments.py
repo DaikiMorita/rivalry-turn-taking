@@ -171,7 +171,7 @@ def main():
     sil = {n: agg(n, [U_WEAK] * n)["silence"] for n in (2, 3, 4)}
     print(f"     → 在席が増えるほど黙る: 沈黙 2体 {pct(sil[2])} / 3体 {pct(sil[3])} / 4体 {pct(sil[4])}")
 
-    print("  ③ 健全 ── フル機構なら、独占せず代わる代わる回る")
+    print("  ③ 健全 ── フル機構なら、独占せず代わる代わる回る（下図は 2 体の交互、数値は 3 体集計）")
     seqH = floor_sequence(2, [U_ON] * 2, seed=0, turns=win)
     print(render_lanes(seqH, 2, ["A", "B"]))
     rH = agg(3, [U_ON] * 3)

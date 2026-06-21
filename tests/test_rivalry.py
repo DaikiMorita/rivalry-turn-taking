@@ -69,10 +69,13 @@ class TestDecideWinner(unittest.TestCase):
         self.assertIsNone(decide_winner({}, {0: 0.0, 1: 0.0}))
 
     def test_rule_is_location_independent(self):
-        # 同じ公開イベントを「どこで・何度」評価しても同じ勝者 = 中央の権威に依らない
-        crossings, integ = {0: 4, 1: 2}, {0: 0.5, 1: 0.5}
-        results = {decide_winner(dict(crossings), dict(integ)) for _ in range(5)}
-        self.assertEqual(results, {1})
+        # 同じ公開イベントなら、評価する場所も dict の並び順も問わず同じ勝者になる
+        # = 中央の権威に依らない（各ノードがローカルに同じ関数を実行しても結論が一致する）。
+        # 勝者が一意に決まる入力（最早 crosser = 1）で、挿入順を変えても勝者が動かないことを縛る。
+        ascending = decide_winner({0: 4, 1: 2, 2: 3}, {0: 0.5, 1: 0.5, 2: 0.5})
+        descending = decide_winner({2: 3, 1: 2, 0: 4}, {2: 0.5, 1: 0.5, 0: 0.5})
+        self.assertEqual(ascending, 1)  # 最早 crosser (step 2) は順序に依らず 1
+        self.assertEqual(ascending, descending)
 
 
 class TestPeerMeshInvariants(unittest.TestCase):
@@ -85,12 +88,16 @@ class TestPeerMeshInvariants(unittest.TestCase):
         self.assertEqual(params, ["self", "field_y", "drive_u", "rng"])
 
     def test_node_feels_only_the_public_scalar(self):
-        # (1) 同じ field_y・drive_u・乱数なら、周囲の構成に依らず同じ更新になる
-        #     = 各ノードは他者の私的状態ではなく公開合計スカラーだけを感じている（平均場結合）。
+        # (1) 同じ field_y・drive_u・乱数なら同じ更新 = 各ノードは他者の私的状態ではなく
+        #     公開合計スカラーだけを感じている（平均場結合）。
         n1, n2 = RivalryNode(0), RivalryNode(0)
         n1.step(1.3, 0.5, random.Random(7))
         n2.step(1.3, 0.5, random.Random(7))
         self.assertEqual((n1.x, n1.a, n1.b), (n2.x, n2.a, n2.b))
+        # 公開スカラー field_y を変えれば更新も変わる（無視しておらず、確かに「感じて」いる）。
+        n3 = RivalryNode(0)
+        n3.step(2.6, 0.5, random.Random(7))
+        self.assertNotEqual(n3.x, n1.x)
 
     def test_field_occupancy_is_sum_of_public_outputs_only(self):
         # (2) 共有バスに乗るのは公開出力 sigmoid(x) の合計だけ。私的状態 a,b は混ざらない。
