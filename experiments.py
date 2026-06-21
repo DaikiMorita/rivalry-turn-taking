@@ -167,7 +167,9 @@ def main():
     seqS = floor_sequence(3, [U_WEAK] * 3, seed=0, turns=win)
     print(render_lanes(seqS, 3, ["A", "B", "C"]))
     rS = agg(3, [U_WEAK] * 3)
-    print(f"     → 沈黙 {pct(rS['silence'])} / 話したときの share {shares_str(rS['shares'])}")
+    print(f"     → (3体) 沈黙 {pct(rS['silence'])} / 話したときの share {shares_str(rS['shares'])}")
+    sil = {n: agg(n, [U_WEAK] * n)["silence"] for n in (2, 3, 4)}
+    print(f"     → 在席が増えるほど黙る: 沈黙 2体 {pct(sil[2])} / 3体 {pct(sil[3])} / 4体 {pct(sil[4])}")
 
     print("  ③ 健全 ── フル機構なら、独占せず代わる代わる回る")
     seqH = floor_sequence(2, [U_ON] * 2, seed=0, turns=win)
@@ -184,8 +186,14 @@ def main():
         print(f"  {sg:<5} | {shares_str(r['shares']):<12} | {pct(r['ge4']):<9} | {notes[sg]}")
     print("  → 独占を防ぐのは不応・疲労、対称を破るのは揺らぎ。両方がちょうどよい範囲＝『窓』。")
 
-    # ── 柱2-C: 窓の中では rivalry だけが両立する ──
-    print("\n[C] 窓の中で rivalry は baselines に勝つ（3 体・一者だけ刺激 1.4）")
+    # ── 柱2-C: 名指しは滑らかに効くが独占できない / 窓の中では rivalry だけが両立する ──
+    print("\n[C] 名指しは滑らかに効くが、独占はできない（3 体・一者だけ刺激を上げる）")
+    sweep = [(s, agg(3, [s, U_ON, U_ON])) for s in (1.0, 1.2, 1.4, 1.6, 1.8, 2.0)]
+    print("  刺激（名指し） | " + " | ".join(f"{s:>4}" for s, _ in sweep))
+    print("  share（名指し）| " + " | ".join(f"{r['shares'][0]:.2f}" for _, r in sweep))
+    print("  → 上げるほど主導権は滑らかに増すが 0.5 で頭打ち（一度喋れば不応で一拍抑えられ二連続は不可）。")
+
+    print("\n  わざわざ rivalry を持ち出す意味（名指し 1.4 で 3 方式を比較）")
     riv = agg(3, [1.4, U_ON, U_ON])
     rr = baseline_round_robin(3)
     rnd = baseline_weighted_random([1.4, 1.0, 1.0])
@@ -193,7 +201,7 @@ def main():
     print(f"  rivalry      | {riv['shares'][0]:.2f}           | {pct(riv['ge4'])}")
     print(f"  round-robin  | {rr['shares'][0]:.2f}           | {pct(rr['ge4'])}")
     print(f"  weighted-rnd | {rnd['shares'][0]:.2f}           | {pct(rnd['ge4'])}")
-    print("  → 名指しに応える(0.50) ∧ 独占させない(0%) を同時に満たすのは rivalry だけ。")
+    print(f"  → 名指しに応える({riv['shares'][0]:.2f}) ∧ 独占させない(0%) を同時に満たすのは rivalry だけ。")
 
     # ── 窓の中の健全な姿: N=2 / N=3 ──
     print("\n[D] 窓の中の健全な姿 ── 椅子は誰が持つか（█=発言。全員が話したい状況）")
