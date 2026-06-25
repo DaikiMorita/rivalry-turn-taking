@@ -24,7 +24,7 @@ U_WEAK = 0.25    # その場に居合わせているだけの弱い刺激
 REPEAT_SUPPRESS = 0.5  # 発話直後の自己抑制（直前に喋った者の次ターンの刺激を弱める公開事実）
 
 # 独占レジーム: 独占を防ぐ機構（速い不応・遅い疲労・揺らぎ）を全部切ったパラメータ。
-# = 記事「疲れが無ければ最も高ぶった者が椅子を独占する」の実証用。
+# = 「疲れが無ければ最も高ぶった者が椅子を独占する」ことの実証用。
 MONOPOLY = dict(DEFAULTS, kappa_b=0.0, beta=0.0, sigma=0.0)
 
 
@@ -161,7 +161,7 @@ def main():
     seqM = floor_sequence(3, [U_ON] * 3, seed=0, turns=win, params=MONOPOLY, repeat_suppress=1.0)
     print(render_lanes(seqM, 3, ["A", "B", "C"]))
     rM = agg(3, [U_ON] * 3, params=MONOPOLY, repeat_suppress=1.0)
-    print(f"     → share {shares_str(rM['shares'])} / 最長連続 {rM['max_run']}（＝記事⑤『疲れが無ければ独占』）")
+    print(f"     → share {shares_str(rM['shares'])} / 最長連続 {rM['max_run']}（＝『疲れが無ければ独占』）")
 
     print("  ② 沈黙 ── 刺激が弱ければ、ほとんど誰も話さない（無駄に喋らない自制）")
     seqS = floor_sequence(3, [U_WEAK] * 3, seed=0, turns=win)
@@ -171,23 +171,20 @@ def main():
     sil = {n: agg(n, [U_WEAK] * n)["silence"] for n in (2, 3, 4)}
     print(f"     → 在席が増えるほど黙る: 沈黙 2体 {pct(sil[2])} / 3体 {pct(sil[3])} / 4体 {pct(sil[4])}")
 
-    print("  ③ 健全 ── フル機構なら、独占せず代わる代わる回る（下図は 2 体の交互、数値は 3 体集計）")
-    seqH = floor_sequence(2, [U_ON] * 2, seed=0, turns=win)
-    print(render_lanes(seqH, 2, ["A", "B"]))
+    print("  ③ 健全 ── フル機構なら、独占せず代わる代わる回る（全員が話したい状況、N=2 と N=3 で見る）")
+    print("    N=2 ── 左右がきれいに交互（両眼視野闘争そのもの）")
+    seqH2 = floor_sequence(2, [U_ON] * 2, seed=0, turns=win)
+    print(render_lanes(seqH2, 2, ["A", "B"]))
+    print(annotate_seq(seqH2, 2))
+    print("    N=3 ── 2 体が競り合い、揺らぎが第三者を割り込ませ、組が入れ替わりながら全員に椅子が回る")
+    seqH3 = floor_sequence(3, [U_ON] * 3, seed=0, turns=400 + win)[400:]  # 起動直後の過渡を捨てる
+    print(render_lanes(seqH3, 3, ["A", "B", "C"]))
+    print(annotate_seq(seqH3, 3))
     rH = agg(3, [U_ON] * 3)
-    print(f"     → (3体集計) 沈黙 {pct(rH['silence'])} / share {shares_str(rH['shares'])} / 連続4回以上 {pct(rH['ge4'])}")
+    print(f"     → 20 seed 集計（N=3）: 沈黙 {pct(rH['silence'])} / share {shares_str(rH['shares'])} / 連続4回以上 {pct(rH['ge4'])}")
 
-    # ── 柱2-B: 健全さは『窓』に宿る ──
-    print("\n[B] 健全さは『窓』に宿る ── 揺らぎ sigma を振る（2 体・刺激同じ）")
-    print("  sigma | share        | 連続4回以上 | 解釈")
-    notes = {0.0: "対称が破れず勝者総取り＝独占", 0.05: "ちょうどよい＝健全", 0.1: "ちょうどよい＝健全", 0.4: "入れすぎ＝同じ者が続きがち"}
-    for sg in (0.0, 0.05, 0.1, 0.4):
-        r = agg(2, [U_ON, U_ON], params=dict(DEFAULTS, sigma=sg))
-        print(f"  {sg:<5} | {shares_str(r['shares']):<12} | {pct(r['ge4']):<9} | {notes[sg]}")
-    print("  → 独占を防ぐのは不応・疲労、対称を破るのは揺らぎ。両方がちょうどよい範囲＝『窓』。")
-
-    # ── 柱2-C: 名指しは滑らかに効くが独占できない / 窓の中では rivalry だけが両立する ──
-    print("\n[C] 名指しは滑らかに効くが、独占はできない（3 体・一者だけ刺激を上げる）")
+    # ── 柱2-B: 名指しは滑らかに効くが独占できない / rivalry だけが両立する ──
+    print("\n[B] 名指しは滑らかに効くが、独占はできない（3 体・一者だけ刺激を上げる）")
     sweep = [(s, agg(3, [s, U_ON, U_ON])) for s in (1.0, 1.2, 1.4, 1.6, 1.8, 2.0)]
     print("  刺激（名指し） | " + " | ".join(f"{s:>4}" for s, _ in sweep))
     print("  share（名指し）| " + " | ".join(f"{r['shares'][0]:.2f}" for _, r in sweep))
@@ -202,18 +199,6 @@ def main():
     print(f"  round-robin  | {rr['shares'][0]:.2f}           | {pct(rr['ge4'])}")
     print(f"  weighted-rnd | {rnd['shares'][0]:.2f}           | {pct(rnd['ge4'])}")
     print(f"  → 名指しに応える({riv['shares'][0]:.2f}) ∧ 独占させない(0%) を同時に満たすのは rivalry だけ。")
-
-    # ── 窓の中の健全な姿: N=2 / N=3 ──
-    print("\n[D] 窓の中の健全な姿 ── 椅子は誰が持つか（█=発言。全員が話したい状況）")
-    print("  N=2: 両眼視野闘争そのもの ── 左右がきれいに交互（2 体ならできて当然）")
-    seq2 = floor_sequence(2, [U_ON] * 2, seed=0, turns=80)
-    print(render_lanes(seq2, 2, ["A", "B"]))
-    print(annotate_seq(seq2, 2))
-    print("  N=3: 3 体でも独占は起きない ── 2 体が競り合い、揺らぎが第三者を割り込ませ、")
-    print("       組み合わせが入れ替わりながら全員に floor が回る（長期 share は [A] ③ の ≈0.33 ずつ）")
-    seq3 = floor_sequence(3, [U_ON] * 3, seed=0, turns=400 + 80)[400:]  # 起動直後の過渡を捨てる
-    print(render_lanes(seq3, 3, ["A", "B", "C"]))
-    print(annotate_seq(seq3, 3))
 
 
 if __name__ == "__main__":
